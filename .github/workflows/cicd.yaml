@@ -1,0 +1,36 @@
+name: lint, typecheck, test
+
+on: [push, pull_request]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: ".python-version"
+
+      - name: uv install
+        run: uv sync --dev
+
+      - name: ruff lint
+        run: uv run poe lint
+
+      - name: pyright typecheck
+        run: uv run poe typecheck
+
+      - name: Create Prometheus directory
+        run: mkdir -p /tmp/prometheus
+
+      - name: Run tests
+        env:
+          PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus
+        run: uv run pytest -vv

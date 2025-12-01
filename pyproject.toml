@@ -1,0 +1,81 @@
+[project]
+name = "otel-collector-proxy"
+version = "0.0.0"
+requires-python = ">=3.14"
+description = "Proxy for sending otel traces to otel collector"
+authors = [{ name = "bartosz121", email = "bmagiera121@gmail.com" }]
+readme = "README.md"
+dependencies = [
+    "fastapi>=0.122.0,<0.123.0",
+    "granian>=2.6.0,<3.0.0",
+    "structlog>=25.5.0,<26.0.0",
+    "pydantic-settings>=2.12.0,<2.13.0",
+    "prometheus-client>=0.23.1,<0.24.0",
+    "httpx>=0.28.1,<0.29.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.7",
+    "pyright>=1.1.407",
+    "pytest>=9.0.1",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+    "poethepoet>=0.38.0",
+    "asgi-lifespan>=2.1.0",
+    "respx>=0.22.0",
+    "pytest-env>=1.2.0",
+    "testcontainers>=4.13.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 99
+exclude = ["fastapi-app-template"]
+
+[tool.ruff.lint]
+extend-select = ["Q", "RUF100", "C90", "UP", "I", "T20"]
+isort = { combine-as-imports = true }
+mccabe = { max-complexity = 15 }
+
+[tool.pyright]
+pythonVersion = "3.14"
+typeCheckingMode = "strict"
+reportUnnecessaryTypeIgnoreComment = true
+venvPath = ".venv"
+exclude = ["fastapi-app-template", ".venv"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self\\.debug",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+env = [
+    "ENVIRONMENT=TESTING",
+    "LOG_LEVEL=DEBUG",
+    "OTEL_COLLECTOR_HTTP_HOST=http://localhost:4318",
+    "OTEL_COLLECTOR_HTTP_ENDPOINT=/v1/traces",
+]
+filterwarnings = [
+    "ignore:Repeated configuration attempted:RuntimeWarning:otel_collector_proxy.core.logging",
+    "ignore:The @wait_container_is_ready decorator is deprecated:DeprecationWarning:testcontainers.core.waiting_utils",
+]
+
+[tool.poe.tasks]
+format = { shell = "ruff format . && ruff check --fix ." }
+lint = { shell = "ruff format --check . && ruff check ." }
+typecheck = "pyright --warnings ."
+test = "pytest"
