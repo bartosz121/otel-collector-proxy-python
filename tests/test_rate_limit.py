@@ -93,14 +93,14 @@ async def prod_client(monkeypatch: pytest.MonkeyPatch) -> AsyncGenerator[httpx.A
 @respx.mock
 async def test_rate_limit_development(dev_client: httpx.AsyncClient):
     """In DEVELOPMENT, exceeding rate limit returns 429."""
-    otel_route = respx.post(f"{settings.OTEL_COLLECTOR_HTTP_HOST}/v1/traces").mock(
+    otel_route = respx.post(f"{settings.OTEL_COLLECTOR_HOST}/v1/traces").mock(
         return_value=httpx.Response(200, content=b"OK")
     )
 
     response = await dev_client.post(
         "/api/v1/traces",
         content=b"{}",
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "X-Data-Type": "opentelemetry-sdk"},
     )
     assert response.status_code == 200
     assert otel_route.call_count == 1
@@ -108,7 +108,7 @@ async def test_rate_limit_development(dev_client: httpx.AsyncClient):
     response = await dev_client.post(
         "/api/v1/traces",
         content=b"{}",
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "X-Data-Type": "opentelemetry-sdk"},
     )
     assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
     assert response.content == b"Too Many Requests"
@@ -118,14 +118,14 @@ async def test_rate_limit_development(dev_client: httpx.AsyncClient):
 @respx.mock
 async def test_rate_limit_production(prod_client: httpx.AsyncClient):
     """In PRODUCTION, exceeding rate limit returns 204."""
-    otel_route = respx.post(f"{settings.OTEL_COLLECTOR_HTTP_HOST}/v1/traces").mock(
+    otel_route = respx.post(f"{settings.OTEL_COLLECTOR_HOST}/v1/traces").mock(
         return_value=httpx.Response(200, content=b"OK")
     )
 
     response = await prod_client.post(
         "/api/v1/traces",
         content=b"{}",
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "X-Data-Type": "opentelemetry-sdk"},
     )
     assert response.status_code == status.HTTP_204_NO_CONTENT
     assert otel_route.call_count == 1
@@ -133,7 +133,7 @@ async def test_rate_limit_production(prod_client: httpx.AsyncClient):
     response = await prod_client.post(
         "/api/v1/traces",
         content=b"{}",
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "X-Data-Type": "opentelemetry-sdk"},
     )
     assert response.status_code == status.HTTP_204_NO_CONTENT
     assert response.content == b""

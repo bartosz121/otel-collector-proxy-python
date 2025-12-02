@@ -35,12 +35,14 @@ class Environment(StrEnum):
 
 
 class Settings(BaseSettings):
-    ENVIRONMENT: Environment = Environment.PRODUCTION
+    ENVIRONMENT: Environment = Environment.DEVELOPMENT
     LOG_LEVEL: str = "DEBUG"
     ENABLED_LOGGERS: list[str] = ["granian", "httpx"]
 
-    OTEL_COLLECTOR_HTTP_HOST: str = "http://localhost:4318"
-    OTEL_COLLECTOR_HTTP_ENDPOINT: str = "/v1/traces"
+    OTEL_COLLECTOR_HOST: str = "http://localhost:4318"
+    OTEL_COLLECTOR_ENDPOINT: str = "/v1/traces"
+    OTEL_COLLECTOR_FARO_HOST: str = "http://localhost:8081"
+    OTEL_COLLECTOR_FARO_ENDPOINT: str = "/collect"
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:8080"]
     PROMETHEUS_MULTIPROC_DIR: str | None = None
     MAX_BODY_SIZE: int = 1024 * 1024 * 5  # 5 MB

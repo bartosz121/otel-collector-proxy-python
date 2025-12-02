@@ -9,6 +9,7 @@ from otel_collector_proxy.core.utils import get_http_status_message
 
 
 class ErrorCode(StrEnum):
+    UNEXPECTED_DATA_TYPE = "UNEXPECTED_DATA_TYPE"
     REQUEST_VALIDATION_ERROR = "REQUEST_VALIDATION_ERROR"
     RESPONSE_VALIDATION_ERROR = "RESPONSE_VALIDATION_ERROR"
 

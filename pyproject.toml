@@ -66,8 +66,10 @@ testpaths = ["tests"]
 env = [
     "ENVIRONMENT=TESTING",
     "LOG_LEVEL=DEBUG",
-    "OTEL_COLLECTOR_HTTP_HOST=http://localhost:4318",
-    "OTEL_COLLECTOR_HTTP_ENDPOINT=/v1/traces",
+    "OTEL_COLLECTOR_HOST=http://localhost:4318",
+    "OTEL_COLLECTOR_ENDPOINT=/v1/traces",
+    "OTEL_COLLECTOR_FARO_HOST=http://localhost:8081",
+    "OTEL_COLLECTOR_FARO_ENDPOINT=/collect",
 ]
 filterwarnings = [
     "ignore:Repeated configuration attempted:RuntimeWarning:otel_collector_proxy.core.logging",

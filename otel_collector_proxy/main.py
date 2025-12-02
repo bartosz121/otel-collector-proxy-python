@@ -1,17 +1,19 @@
 # pyright: reportUnusedFunction=false
 
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import dataclass
 from typing import Annotated, TypedDict, cast
 
 import httpx
 import structlog
-from fastapi import BackgroundTasks, Depends, FastAPI, Request, status
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from otel_collector_proxy.core.config import settings
+from otel_collector_proxy.core.data_type import DataType
 from otel_collector_proxy.core.exception_handlers import configure as configure_exception_handlers
-from otel_collector_proxy.core.exceptions import ResponseValidationError
+from otel_collector_proxy.core.exceptions import BadRequest, ErrorCode, ResponseValidationError
 from otel_collector_proxy.core.logging import configure as configure_logging
 from otel_collector_proxy.core.middleware.configure import configure as configure_middleware
 from otel_collector_proxy.core.rate_limit import RateLimiter as RateLimiter_
@@ -22,25 +24,45 @@ logger: structlog.stdlib.BoundLogger = structlog.get_logger()
 
 class State(TypedDict):
     rate_limiter: RateLimiter_
-    otel_collector_http_client: httpx.AsyncClient
+    otel_collector_client: httpx.AsyncClient  # Opentelemetry sdk (json/protobuf)
+    otel_collector_faro_client: httpx.AsyncClient  # Faro
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[State]:
-    rate_limiter = RateLimiter_(settings.RATE_LIMIT_REQUESTS, settings.RATE_LIMIT_WINDOW)
+    async with AsyncExitStack() as stack:
+        rate_limiter = RateLimiter_(settings.RATE_LIMIT_REQUESTS, settings.RATE_LIMIT_WINDOW)
 
-    async with httpx.AsyncClient(
-        base_url=settings.OTEL_COLLECTOR_HTTP_HOST
-    ) as otel_collector_client:
+        otel_http_client = await stack.enter_async_context(
+            httpx.AsyncClient(base_url=settings.OTEL_COLLECTOR_HOST)
+        )
+        otel_faro_client = await stack.enter_async_context(
+            httpx.AsyncClient(base_url=settings.OTEL_COLLECTOR_FARO_HOST)
+        )
+
         yield {
             "rate_limiter": rate_limiter,
-            "otel_collector_http_client": otel_collector_client,
+            "otel_collector_client": otel_http_client,
+            "otel_collector_faro_client": otel_faro_client,
         }
 
 
-def get_otel_collector_http_client(request: Request) -> httpx.AsyncClient:
+@dataclass
+class DataReceiver:
+    client: httpx.AsyncClient
+    endpoint_url: str
+
+
+def get_otel_collector_receiver(request: Request) -> DataReceiver:
     # https://github.com/Kludex/starlette/pull/3036
-    return cast(httpx.AsyncClient, request.state.otel_collector_http_client)
+    client = cast(httpx.AsyncClient, request.state.otel_collector_client)
+    return DataReceiver(client=client, endpoint_url=settings.OTEL_COLLECTOR_ENDPOINT)
+
+
+def get_otel_collector_faro_receiver(request: Request) -> DataReceiver:
+    # https://github.com/Kludex/starlette/pull/3036
+    client = cast(httpx.AsyncClient, request.state.otel_collector_faro_client)
+    return DataReceiver(client=client, endpoint_url=settings.OTEL_COLLECTOR_FARO_ENDPOINT)
 
 
 def get_rate_limiter(request: Request) -> RateLimiter_:
@@ -48,8 +70,26 @@ def get_rate_limiter(request: Request) -> RateLimiter_:
     return cast(RateLimiter_, request.state.rate_limiter)
 
 
-OtelHttpClient = Annotated[httpx.AsyncClient, Depends(get_otel_collector_http_client)]
+OtelDataReceiver = Annotated[DataReceiver, Depends(get_otel_collector_receiver)]
+FaroDataReceiver = Annotated[DataReceiver, Depends(get_otel_collector_faro_receiver)]
 RateLimiter = Annotated[RateLimiter_, Depends(get_rate_limiter)]
+
+
+def get_otel_client(
+    otel_receiver: OtelDataReceiver,
+    faro_receiver: FaroDataReceiver,
+    x_data_type: Annotated[str | None, Header()] = None,
+) -> DataReceiver:
+    match x_data_type:
+        case DataType.OPENTELEMETRY_SDK.value:
+            return otel_receiver
+        case DataType.FARO.value:
+            return faro_receiver
+        case _:
+            raise BadRequest(code=ErrorCode.UNEXPECTED_DATA_TYPE, error="Unexpected data type")
+
+
+DataReceiverDep = Annotated[DataReceiver, Depends(get_otel_client)]
 
 
 def create_app() -> FastAPI:
@@ -89,14 +129,14 @@ def create_app() -> FastAPI:
         request: Request,
         background_tasks: BackgroundTasks,
         rate_limiter: RateLimiter,
-        otel_http_client: OtelHttpClient,
+        data_receiver: DataReceiverDep,
     ) -> MaskedResponse:
-        logger.info(f"{settings.ENVIRONMENT=}")
         client_ip = request.client.host if request.client else "unknown"
 
+        logger.info("rate limiter state", state=repr(rate_limiter.storage))
         if not rate_limiter.is_allowed(client_ip):
             if settings.ENVIRONMENT.is_production:
-                return MaskedResponse(content=b"", status_code=status.HTTP_404_NOT_FOUND)
+                return MaskedResponse(content=b"", status_code=status.HTTP_204_NO_CONTENT)
 
             return MaskedResponse(
                 content=b"Too Many Requests",
@@ -141,16 +181,16 @@ def create_app() -> FastAPI:
         if settings.ENVIRONMENT.is_production:
             background_tasks.add_task(
                 forward_traces,
-                otel_http_client,
-                settings.OTEL_COLLECTOR_HTTP_ENDPOINT,
+                data_receiver.client,
+                data_receiver.endpoint_url,
                 body,
                 forward_headers,
             )
-            return MaskedResponse(content=b"", status_code=status.HTTP_404_NOT_FOUND)
+            return MaskedResponse(content=b"", status_code=status.HTTP_204_NO_CONTENT)
 
         return await forward_traces(
-            otel_http_client,
-            settings.OTEL_COLLECTOR_HTTP_ENDPOINT,
+            data_receiver.client,
+            data_receiver.endpoint_url,
             body,
             forward_headers,
         )
